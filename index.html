@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Бой next door</title>
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      font-family: system-ui, Segoe UI, Roboto, Arial;
+    }
+
+    #app {
+      height: 100%;
+      display: flex;
+    }
+
+    canvas {
+      flex: 1;
+      display: block;
+      cursor: grab;
+    }
+
+    #controls {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 12px;
+      z-index: 10;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+
+    #bgControl {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+    }
+
+    button {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid #0001;
+      background: #fff;
+      box-shadow: 0 2px 6px #0001;
+      font-weight: 600;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Buttons -->
+  <div id="bgControl">
+    <button id="bgPrevButton">&lt;- Задний План</button>
+    <button id="bgButton">Задний План -></button>
+  </div>
+
+  <div id="controls">
+    <div class="control-group">
+      <button data-team="red" data-action="add">Враги +</button>
+      <button data-team="red" data-action="remove">Враги -</button>
+    </div>
+
+    <div class="control-group">
+      <button data-team="green" data-action="add">Союзники +</button>
+      <button data-team="green" data-action="remove">Союзники -</button>
+    </div>
+  </div>
+
+  <div id="app"><canvas id="c"></canvas></div>
+
+  <script>
+    /* ================== Canvas & State ================== */
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+    let DPR = devicePixelRatio || 1;
+
+    const circles = [];
+    let active = null;
+    let deathCount = 0;
+
+    /* ================== Constants ================== */
+    const bgButton = document.getElementById("bgButton");
+    const bgPrevButton = document.getElementById("bgPrevButton");
+    const BG_STORAGE_KEY = "selectedBackground";
+    const defaultBg = "background/background.png";
+    const extensions = ["png", "jpg", "jpeg", "webp"];
+
+    /* ================== Background ================== */
+    const bg = new Image();
+    let bgReady = false;
+    let bgIndex = -1;
+    bg.onload = () => (bgReady = true);
+    bg.onerror = () => (bgReady = false);
+    const savedBg = localStorage.getItem(BG_STORAGE_KEY);
+    bgReady = false;
+    bg.src = savedBg || defaultBg;
+
+    if (savedBg) {
+      const m = savedBg.match(/background\/background(\d+)\./);
+      bgIndex = m ? +m[1] : -1;
+    }
+
+    /* ================== Utils ================== */
+    const tryLoad = src =>
+      new Promise(res => {
+        const i = new Image();
+        i.onload = () => res(i);
+        i.onerror = () => res(null);
+        i.src = src;
+      });
+
+    async function findBackground(start, step) {
+      let i;
+      if (start === -1) {
+        i = step > 0 ? 1 : Infinity;
+      } else {
+        i = start + step;
+      }
+      while (i >= 1) {
+        for (const ext of extensions) {
+          const src = `background/background${i}.${ext}`;
+          if (await tryLoad(src)) return { src, index: i };
+        }
+        i += step;
+      }
+      return null;
+    }
+
+    /* ================== Changing background picture ================== */
+    async function cycleBg(step) {
+      console.log("button")
+      const found = await findBackground(bgIndex, step);
+      const src = found ? found.src : defaultBg;
+
+      bg.src = src;
+      bgIndex = found ? found.index : -1;
+      localStorage.setItem(BG_STORAGE_KEY, src);
+    }
+
+    bgButton.onclick = () => cycleBg(1);
+    bgPrevButton.onclick = () => cycleBg(-1);
+
+    /* ================== Resize ================== */
+    const bin = { x: 0, y: 0, w: 220, h: 220 };
+
+    function resize() {
+      const w = innerWidth, h = innerHeight;
+      canvas.width = w * DPR;
+      canvas.height = h * DPR;
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+      bin.w = Math.min(220, w * 0.25);
+      bin.h = Math.min(220, h * 0.35);
+      bin.x = w - bin.w - 20;
+      bin.y = (h - bin.h) / 2;
+    }
+    addEventListener("resize", resize);
+    resize();
+
+    /* ================== Circles ================== */
+    const colors = {
+      red: { fill: "rgba(255,80,80,.3)", stroke: "rgba(180,40,40,.3)" },
+      green: { fill: "rgba(80,255,80,.3)", stroke: "rgba(40,180,40,.3)" }
+    };
+
+    function makeCircle(nx, ny, team, r, label, initial = false, spawned = false) {
+      return {
+        nx,
+        ny,
+        r,
+        label,
+        team,
+        initial,
+        spawned,
+        ...colors[team]
+      };
+    }
+
+    /* ================== Numbering ================== */
+    const numberState = {
+      red: { next: 1, reusable: [] },
+      green: { next: 1, reusable: [] }
+    };
+
+    function nextNumber(team) {
+      return numberState[team].reusable.shift() ?? numberState[team].next++;
+    }
+
+    /* ================== Spawn / Remove ================== */
+    function spawn(team) {
+      const baseY = team === "red" ? 0.15 : 0.65;
+      const count = circles.filter(c => c.spawned && c.team === team).length;
+      const W = canvas.clientWidth;
+      const r = 20;
+      const gap = 10;
+      const spacingPx = r * 2 + gap;
+      const spacingNx = spacingPx / W;
+      const startNx = 0.3;
+      circles.push(
+        makeCircle(
+          startNx + count * spacingNx,
+          baseY,
+          team,
+          r,
+          nextNumber(team),
+          false,
+          true
+        )
+      );
+    }
+
+    function removeLastSpawned(team) {
+      for (let i = circles.length - 1; i >= 0; i--) {
+        const c = circles[i];
+        if (c.spawned && c.team === team) {
+          circles.splice(i, 1);
+          numberState[team].reusable.push(c.label);
+          numberState[team].reusable.sort((a, b) => a - b);
+          return;
+        }
+      }
+    }
+
+    /* ================== Controls ================== */
+    document.querySelectorAll("#controls button").forEach(b =>
+      b.onclick = () =>
+        b.dataset.action === "add"
+          ? spawn(b.dataset.team)
+          : removeLastSpawned(b.dataset.team)
+    );
+
+    /* ================== Interaction ================== */
+    const dist = (a, b, x, y) => Math.hypot(a - x, b - y);
+
+    canvas.onpointerdown = e => {
+      const r = canvas.getBoundingClientRect();
+      const px = e.clientX - r.left;
+      const py = e.clientY - r.top;
+
+      for (let i = circles.length - 1; i >= 0; i--) {
+        const c = circles[i];
+        const cx = c.nx * r.width;
+        const cy = c.ny * r.height;
+
+        if (dist(px, py, cx, cy) <= c.r) {
+          circles.splice(i, 1);
+          circles.push(c);
+          active = { c, dx: px - cx, dy: py - cy };
+          canvas.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
+    };
+
+    canvas.onpointermove = e => {
+      if (!active) return;
+      const r = canvas.getBoundingClientRect();
+      active.c.nx = (e.clientX - r.left - active.dx) / r.width;
+      active.c.ny = (e.clientY - r.top - active.dy) / r.height;
+    };
+
+    canvas.onpointerup = e => {
+      if (active) {
+        const c = active.c;
+        const x = c.nx * (canvas.width / DPR);
+        const y = c.ny * (canvas.height / DPR);
+
+        if (!c.initial &&
+          x + c.r > bin.x && x - c.r < bin.x + bin.w &&
+          y + c.r > bin.y && y - c.r < bin.y + bin.h) {
+          circles.splice(circles.indexOf(c), 1);
+          deathCount++;
+        }
+      }
+      active = null;
+    };
+
+    /* ================== Draw ================== */
+    function draw() {
+      const W = canvas.width / DPR, H = canvas.height / DPR;
+      ctx.clearRect(0, 0, W, H);
+
+      if (bgReady) ctx.drawImage(bg, 0, 0, W, H);
+
+      // Graveyard
+      ctx.fillStyle = "rgba(200,50,50,.15)";
+      ctx.strokeStyle = "rgba(200,50,50,.6)";
+      ctx.lineWidth = 3;
+      ctx.fillRect(bin.x, bin.y, bin.w, bin.h);
+      ctx.strokeRect(bin.x, bin.y, bin.w, bin.h);
+
+      ctx.fillStyle = "#000";
+      ctx.font = "bold 14px sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("Graveyard", bin.x + 10, bin.y + 10);
+      ctx.fillText(`Death Count: ${deathCount}`, bin.x + 10, bin.y + 30);
+
+      // Circles
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      for (const c of circles) {
+        const x = c.nx * W, y = c.ny * H;
+
+        ctx.beginPath();
+        ctx.arc(x, y, c.r, 0, Math.PI * 2);
+        ctx.fillStyle = c.fill;
+        ctx.strokeStyle = c.stroke;
+        ctx.fill();
+        ctx.stroke();
+
+        if (c.label) {
+          ctx.fillStyle = "#000";
+          ctx.font = "bold 10px sans-serif";
+          ctx.fillText(c.label, x, y);
+        }
+      }
+      requestAnimationFrame(draw);
+    }
+    draw();
+
+    /* ================== Initial Circles ================== */
+    const initialCircles = [
+      [0.55, 0.75, "Вульрад"],
+      [0.53, 0.80, "Asitburns"],
+      [0.57, 0.80, "Asshunter"],
+      [0.53, 0.85, "Фалька"],
+      [0.57, 0.85, "Вильгельм"]
+    ];
+
+    initialCircles.forEach(([nx, ny, name]) =>
+      circles.push({
+        nx,
+        ny,
+        r: 25,
+        label: name,
+        team: "green",
+        initial: true,
+        spawned: false,
+        ...colors.green
+      })
+    );
+
+  </script>
+</body>
+
+</html>
