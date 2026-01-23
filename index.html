@@ -82,23 +82,24 @@
 
   <script>
     /* ================== Access ================== */
-    (function () {
-      const PASSWORD = "password";
-      const KEY = "page_authenticated";
+  (function () {
+    const PASSWORDS = [
+      "password",
+      "пароль"
+    ];
+    const KEY = "page_authenticated";
+    if (sessionStorage.getItem(KEY) === "true") return;
+    document.documentElement.style.display = "none";
+    const input = prompt("Enter password:");
 
-      if (sessionStorage.getItem(KEY) === "true") return;
-
-      document.documentElement.style.display = "none";
-
-      const input = prompt("Enter password:");
-      if (input === PASSWORD) {
-        sessionStorage.setItem(KEY, "true");
-        document.documentElement.style.display = "";
-      } else {
-        document.body.innerHTML = "<h1>Access denied</h1>";
-        throw new Error("Unauthorized");
-      }
-    })();
+    if (PASSWORDS.includes(input)) {
+      sessionStorage.setItem(KEY, "true");
+      document.documentElement.style.display = "";
+    } else {
+      document.body.innerHTML = "<h1>Access denied</h1>";
+      throw new Error("Unauthorized");
+    }
+  })();
 
     /* ================== Canvas & State ================== */
     const canvas = document.getElementById("c");
