@@ -24,9 +24,18 @@
       cursor: grab;
     }
 
-    #controls {
+    #mobsbuttons {
       position: fixed;
       top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 12px;
+      z-index: 10;
+    }
+
+    #characktersbuttons {
+      position: fixed;
+      bottom: 12px;
       right: 12px;
       display: flex;
       gap: 12px;
@@ -66,7 +75,7 @@
     <button id="bgButton">Задний План -></button>
   </div>
 
-  <div id="controls">
+  <div id="mobsbuttons">
     <div class="control-group">
       <button data-team="red" data-action="add">Враги +</button>
       <button data-team="red" data-action="remove">Враги -</button>
@@ -78,28 +87,34 @@
     </div>
   </div>
 
+  <div id="characktersbuttons">
+    <div class="control-group">
+      <button data-team="initial" data-action="add">Добавить Персонаж</button>
+    </div>
+  </div>
+
   <div id="app"><canvas id="c"></canvas></div>
 
   <script>
     /* ================== Access ================== */
-  (function () {
-    const PASSWORDS = [
-      "password",
-      "пароль"
-    ];
-    const KEY = "page_authenticated";
-    if (sessionStorage.getItem(KEY) === "true") return;
-    document.documentElement.style.display = "none";
-    const input = prompt("Enter password:");
+    (function () {
+      const PASSWORDS = [
+        "password",
+        "пароль"
+      ];
+      const KEY = "page_authenticated";
+      if (sessionStorage.getItem(KEY) === "true") return;
+      document.documentElement.style.display = "none";
+      const input = prompt("Enter password:");
 
-    if (PASSWORDS.includes(input)) {
-      sessionStorage.setItem(KEY, "true");
-      document.documentElement.style.display = "";
-    } else {
-      document.body.innerHTML = "<h1>Access denied</h1>";
-      throw new Error("Unauthorized");
-    }
-  })();
+      if (PASSWORDS.includes(input)) {
+        sessionStorage.setItem(KEY, "true");
+        document.documentElement.style.display = "";
+      } else {
+        document.body.innerHTML = "<h1>Access denied</h1>";
+        throw new Error("Unauthorized");
+      }
+    })();
 
     /* ================== Canvas & State ================== */
     const canvas = document.getElementById("c");
@@ -116,6 +131,8 @@
     const BG_STORAGE_KEY = "selectedBackground";
     const defaultBg = "background/background.png";
     const extensions = ["png", "jpg", "jpeg", "webp"];
+    const CIRCLES_STORAGE_KEY = "initialCircleNames";
+    const CUSTOM_CHAR_STORAGE_KEY = "customInitialCharacters";
 
     /* ================== Background ================== */
     const bg = new Image();
@@ -243,6 +260,25 @@
       );
     }
 
+    function addInitialCharacter() {
+      const name = prompt("Имя персонажа:", "New");
+      if (!name) return;
+
+      circles.push({
+        nx: 0.55,
+        ny: 0.75,
+        r: 25,
+        label: name,
+        team: "green",
+        initial: false,
+        spawned: false,
+        id: nextInitialId++,
+        ...colors.green
+      });
+
+      saveCustomCharacters();
+    }
+
     function removeLastSpawned(team) {
       for (let i = circles.length - 1; i >= 0; i--) {
         const c = circles[i];
@@ -255,14 +291,40 @@
       }
     }
 
+    function saveInitialNames() {
+      const data = {};
+      circles.forEach(c => {
+        if (c.initial) {
+          data[c.id] = c.label;
+        }
+      });
+      localStorage.setItem(CIRCLES_STORAGE_KEY, JSON.stringify(data));
+    }
+
     /* ================== Controls ================== */
-    document.querySelectorAll("#controls button").forEach(b =>
+    document.querySelectorAll("#mobsbuttons button").forEach(b =>
       b.onclick = () =>
         b.dataset.action === "add"
           ? spawn(b.dataset.team)
           : removeLastSpawned(b.dataset.team)
     );
 
+    document
+      .querySelector('#characktersbuttons button')
+      .onclick = addInitialCharacter;
+
+    function saveCustomCharacters() {
+      const data = circles
+        .filter(c => !c.initial && !c.spawned && c.team === "green")
+        .map(c => ({
+          nx: c.nx,
+          ny: c.ny,
+          label: c.label,
+          id: c.id
+        }));
+
+      localStorage.setItem(CUSTOM_CHAR_STORAGE_KEY, JSON.stringify(data));
+    }
     /* ================== Interaction ================== */
     const dist = (a, b, x, y) => Math.hypot(a - x, b - y);
 
@@ -304,6 +366,7 @@
           y + c.r > bin.y && y - c.r < bin.y + bin.h) {
           circles.splice(circles.indexOf(c), 1);
           deathCount++;
+          saveCustomCharacters();
         }
       }
       active = null;
@@ -352,29 +415,80 @@
       }
       requestAnimationFrame(draw);
     }
-    draw();
 
     /* ================== Initial Circles ================== */
     const initialCircles = [
       [0.55, 0.75, "Вульрад"],
       [0.53, 0.80, "Asitburns"],
-      [0.57, 0.80, "Asshunter"],
-      [0.53, 0.85, "Фалька"],
-      [0.57, 0.85, "Вильгельм"]
+      [0.57, 0.80, "Asshunter"]
     ];
 
-    initialCircles.forEach(([nx, ny, name]) =>
+    let nextInitialId = initialCircles.length;
+
+    // Load saved names if exist
+    const savedNames = JSON.parse(localStorage.getItem(CIRCLES_STORAGE_KEY) || "{}");
+
+    initialCircles.forEach(([nx, ny, defaultName], index) => {
       circles.push({
         nx,
         ny,
         r: 25,
-        label: name,
+        label: savedNames[index] || defaultName,
         team: "green",
         initial: true,
         spawned: false,
+        id: index, // important for persistence
         ...colors.green
-      })
+      });
+    });
+
+    draw();
+
+    const savedCustom = JSON.parse(
+      localStorage.getItem(CUSTOM_CHAR_STORAGE_KEY) || "[]"
     );
+
+    savedCustom.forEach(c => {
+      circles.push({
+        nx: c.nx,
+        ny: c.ny,
+        r: 25,
+        label: c.label,
+        team: "green",
+        initial: false,
+        spawned: false,
+        id: c.id,
+        ...colors.green
+      });
+
+      nextInitialId = Math.max(nextInitialId, c.id + 1);
+    });
+    /* ================== Rename Initial Circles ================== */
+
+    canvas.ondblclick = e => {
+      const rect = canvas.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+
+      for (let i = circles.length - 1; i >= 0; i--) {
+        const c = circles[i];
+
+        if (c.team !== "green" || c.spawned) continue;
+
+        const cx = c.nx * rect.width;
+        const cy = c.ny * rect.height;
+
+        if (dist(px, py, cx, cy) <= c.r) {
+          const newName = prompt("Enter new name:", c.label);
+          if (newName !== null && newName.trim() !== "") {
+            c.label = newName.trim();
+            saveInitialNames();
+            saveCustomCharacters();
+          }
+          return;
+        }
+      }
+    };
 
   </script>
 </body>
