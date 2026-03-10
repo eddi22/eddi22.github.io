@@ -76,6 +76,9 @@
   </div>
 
   <div id="mobsbuttons">
+
+    <button id="addEliteButton">Добавить Элиту</button>
+
     <div class="control-group">
       <button data-team="red" data-action="add">Враги +</button>
       <button data-team="red" data-action="remove">Враги -</button>
@@ -133,6 +136,7 @@
     const extensions = ["png", "jpg", "jpeg", "webp"];
     const CIRCLES_STORAGE_KEY = "initialCircleNames";
     const CUSTOM_CHAR_STORAGE_KEY = "customInitialCharacters";
+    const CUSTOM_ELITE_STORAGE_KEY = "customEliteCharacters";
 
     /* ================== Background ================== */
     const bg = new Image();
@@ -265,7 +269,7 @@
       if (!name) return;
 
       circles.push({
-        nx: 0.55,
+        nx: 0.25,
         ny: 0.75,
         r: 25,
         label: name,
@@ -275,8 +279,26 @@
         id: nextInitialId++,
         ...colors.green
       });
-
       saveCustomCharacters();
+    }
+
+    function addEliteCharacter() {
+      const name = prompt("Elite name:", "New");
+      if (!name) return;
+
+      circles.push({
+        nx: 0.55,
+        ny: 0.25,
+        r: 25,
+        label: name,
+        team: "red",
+        initial: false,
+        spawned: false,
+        elite: true,
+        id: Date.now(),
+        ...colors.red
+      });
+      saveCustomElites();
     }
 
     function removeLastSpawned(team) {
@@ -301,6 +323,18 @@
       localStorage.setItem(CIRCLES_STORAGE_KEY, JSON.stringify(data));
     }
 
+    function saveCustomElites() {
+      const data = circles
+        .filter(c => c.team === "red" && c.elite)
+        .map(c => ({
+          nx: c.nx,
+          ny: c.ny,
+          label: c.label,
+          id: c.id
+        }));
+      localStorage.setItem(CUSTOM_ELITE_STORAGE_KEY, JSON.stringify(data));
+    }
+
     /* ================== Controls ================== */
     document.querySelectorAll("#mobsbuttons button").forEach(b =>
       b.onclick = () =>
@@ -312,6 +346,10 @@
     document
       .querySelector('#characktersbuttons button')
       .onclick = addInitialCharacter;
+
+    document
+      .getElementById("addEliteButton")
+      .onclick = addEliteCharacter;
 
     function saveCustomCharacters() {
       const data = circles
@@ -367,6 +405,7 @@
           circles.splice(circles.indexOf(c), 1);
           deathCount++;
           saveCustomCharacters();
+          saveCustomElites();
         }
       }
       active = null;
@@ -442,6 +481,23 @@
       });
     });
 
+    const savedElites = JSON.parse(localStorage.getItem(CUSTOM_ELITE_STORAGE_KEY) || "[]");
+
+    savedElites.forEach(c => {
+      circles.push({
+        nx: c.nx,
+        ny: c.ny,
+        r: 25,
+        label: c.label,
+        team: "red",
+        initial: false,
+        spawned: false,
+        elite: true,
+        id: c.id,
+        ...colors.red
+      });
+    });
+
     draw();
 
     const savedCustom = JSON.parse(
@@ -473,7 +529,7 @@
       for (let i = circles.length - 1; i >= 0; i--) {
         const c = circles[i];
 
-        if (c.team !== "green" || c.spawned) continue;
+        if (c.spawned) continue;
 
         const cx = c.nx * rect.width;
         const cy = c.ny * rect.height;
