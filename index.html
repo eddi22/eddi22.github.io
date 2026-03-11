@@ -76,20 +76,16 @@
   </div>
 
   <div id="mobsbuttons">
-
     <button id="addEliteButton">Добавить Элиту</button>
-
     <div class="control-group">
       <button data-team="red" data-action="add">Враги +</button>
       <button data-team="red" data-action="remove">Враги -</button>
     </div>
-
     <div class="control-group">
       <button data-team="green" data-action="add">Союзники +</button>
       <button data-team="green" data-action="remove">Союзники -</button>
     </div>
   </div>
-
   <div id="characktersbuttons">
     <div class="control-group">
       <button data-team="initial" data-action="add">Добавить Персонаж</button>
@@ -119,267 +115,205 @@
       }
     })();
 
-    /* ================== Canvas & State ================== */
+    /* ================= Core ================= */
     const canvas = document.getElementById("c");
     const ctx = canvas.getContext("2d");
-    let DPR = devicePixelRatio || 1;
+    const DPR = devicePixelRatio || 1;
 
-    const circles = [];
-    let active = null;
-    let deathCount = 0;
+    const $ = id => document.getElementById(id);
 
-    /* ================== Constants ================== */
-    const bgButton = document.getElementById("bgButton");
-    const bgPrevButton = document.getElementById("bgPrevButton");
-    const BG_STORAGE_KEY = "selectedBackground";
-    const defaultBg = "background/background.png";
-    const extensions = ["png", "jpg", "jpeg", "webp"];
-    const CIRCLES_STORAGE_KEY = "initialCircleNames";
-    const CUSTOM_CHAR_STORAGE_KEY = "customInitialCharacters";
-    const CUSTOM_ELITE_STORAGE_KEY = "customEliteCharacters";
+    const state = {
+      circles: [],
+      active: null,
+      death: 0,
+      bgReady: false,
+      bgIndex: -1
+    };
 
-    /* ================== Background ================== */
-    const bg = new Image();
-    let bgReady = false;
-    let bgIndex = -1;
-    bg.onload = () => (bgReady = true);
-    bg.onerror = () => (bgReady = false);
-    const savedBg = localStorage.getItem(BG_STORAGE_KEY);
-    bgReady = false;
-    bg.src = savedBg || defaultBg;
+    /* ================= Constants ================= */
+    const K = {
+      bgKey: "selectedBackground",
+      namesKey: "initialCircleNames",
+      charKey: "customInitialCharacters",
+      eliteKey: "customEliteCharacters",
+      defaultBg: "background/background.png",
+      ext: ["png", "jpg", "jpeg", "webp"]
+    };
 
-    if (savedBg) {
-      const m = savedBg.match(/background\/background(\d+)\./);
-      bgIndex = m ? +m[1] : -1;
-    }
-
-    /* ================== Utils ================== */
-    const tryLoad = src =>
-      new Promise(res => {
-        const i = new Image();
-        i.onload = () => res(i);
-        i.onerror = () => res(null);
-        i.src = src;
-      });
-
-    async function findBackground(start, step) {
-      let i;
-      if (start === -1) {
-        i = step > 0 ? 1 : Infinity;
-      } else {
-        i = start + step;
-      }
-      while (i >= 1) {
-        for (const ext of extensions) {
-          const src = `background/background${i}.${ext}`;
-          if (await tryLoad(src)) return { src, index: i };
-        }
-        i += step;
-      }
-      return null;
-    }
-
-    /* ================== Changing background picture ================== */
-    async function cycleBg(step) {
-      console.log("button")
-      const found = await findBackground(bgIndex, step);
-      const src = found ? found.src : defaultBg;
-
-      bg.src = src;
-      bgIndex = found ? found.index : -1;
-      localStorage.setItem(BG_STORAGE_KEY, src);
-    }
-
-    bgButton.onclick = () => cycleBg(1);
-    bgPrevButton.onclick = () => cycleBg(-1);
-
-    /* ================== Resize ================== */
-    const bin = { x: 0, y: 0, w: 220, h: 220 };
-
-    function resize() {
-      const w = innerWidth, h = innerHeight;
-      canvas.width = w * DPR;
-      canvas.height = h * DPR;
-      canvas.style.width = w + "px";
-      canvas.style.height = h + "px";
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-      bin.w = Math.min(220, w * 0.25);
-      bin.h = Math.min(220, h * 0.35);
-      bin.x = w - bin.w - 20;
-      bin.y = (h - bin.h) / 2;
-    }
-    addEventListener("resize", resize);
-    resize();
-
-    /* ================== Circles ================== */
     const colors = {
       red: { fill: "rgba(255,80,80,.3)", stroke: "rgba(180,40,40,.3)" },
       green: { fill: "rgba(80,255,80,.3)", stroke: "rgba(40,180,40,.3)" }
     };
 
-    function makeCircle(nx, ny, team, r, label, initial = false, spawned = false) {
-      return {
-        nx,
-        ny,
-        r,
-        label,
-        team,
-        initial,
-        spawned,
-        ...colors[team]
-      };
+    const bin = { x: 0, y: 0, w: 220, h: 220 };
+
+    /* ================= Background ================= */
+    const bg = new Image();
+    bg.onload = () => state.bgReady = true;
+    bg.onerror = () => state.bgReady = false;
+
+    const savedBg = localStorage.getItem(K.bgKey);
+    bg.src = savedBg || K.defaultBg;
+
+    if (savedBg) {
+      const m = savedBg.match(/background(\d+)/);
+      state.bgIndex = m ? +m[1] : -1;
     }
 
-    /* ================== Numbering ================== */
-    const numberState = {
-      red: { next: 1, reusable: [] },
-      green: { next: 1, reusable: [] }
+    const tryLoad = src => new Promise(r => {
+      const i = new Image();
+      i.onload = () => r(i);
+      i.onerror = () => r(null);
+      i.src = src;
+    });
+
+    async function findBg(start, step) {
+      let i = start === -1 ? (step > 0 ? 1 : Infinity) : start + step;
+
+      while (i >= 1) {
+        for (const ext of K.ext) {
+          const src = `background/background${i}.${ext}`;
+          if (await tryLoad(src)) return { src, index: i };
+        }
+        i += step;
+      }
+    }
+
+    async function cycleBg(step) {
+      const f = await findBg(state.bgIndex, step);
+      const src = f ? f.src : K.defaultBg;
+
+      bg.src = src;
+      state.bgIndex = f ? f.index : -1;
+
+      localStorage.setItem(K.bgKey, src);
+    }
+
+    $("bgButton").onclick = () => cycleBg(1);
+    $("bgPrevButton").onclick = () => cycleBg(-1);
+
+    /* ================= Resize ================= */
+    function resize() {
+
+      const w = innerWidth, h = innerHeight;
+
+      canvas.width = w * DPR;
+      canvas.height = h * DPR;
+
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+      bin.w = Math.min(220, w * .25);
+      bin.h = Math.min(220, h * .35);
+      bin.x = w - bin.w - 20;
+      bin.y = (h - bin.h) / 2;
+    }
+
+    addEventListener("resize", resize);
+    resize();
+
+    /* ================= Entities ================= */
+    const make = (nx, ny, team, label, extra = {}) => ({
+      nx, ny, r: 25, label, team, ...extra, ...colors[team]
+    });
+
+    const add = (...a) => state.circles.push(make(...a));
+
+    /* ================= Numbering ================= */
+    const nums = {
+      red: { next: 1, reuse: [] },
+      green: { next: 1, reuse: [] }
     };
+    const nextNum = t => nums[t].reuse.shift() ?? nums[t].next++;
 
-    function nextNumber(team) {
-      return numberState[team].reusable.shift() ?? numberState[team].next++;
-    }
-
-    /* ================== Spawn / Remove ================== */
+    /* ================= Spawn ================= */
     function spawn(team) {
-      const baseY = team === "red" ? 0.15 : 0.65;
-      const count = circles.filter(c => c.spawned && c.team === team).length;
-      const W = canvas.clientWidth;
-      const r = 20;
-      const gap = 10;
-      const spacingPx = r * 2 + gap;
-      const spacingNx = spacingPx / W;
-      const startNx = 0.3;
-      circles.push(
-        makeCircle(
-          startNx + count * spacingNx,
-          baseY,
-          team,
-          r,
-          nextNumber(team),
-          false,
-          true
-        )
+      const y = team === "red" ? 0.15 : 0.65;
+      const count = state.circles.filter(
+        c => c.spawned && c.team === team
+      ).length;
+      const spacing = (40 + 10) / canvas.clientWidth;
+      add(
+        .3 + count * spacing,
+        y,
+        team,
+        String(nextNum(team)),
+        { spawned: true }
       );
     }
 
-    function addInitialCharacter() {
-      const name = prompt("Имя персонажа:", "New");
-      if (!name) return;
-
-      circles.push({
-        nx: 0.25,
-        ny: 0.75,
-        r: 25,
-        label: name,
-        team: "green",
-        initial: false,
-        spawned: false,
-        id: nextInitialId++,
-        ...colors.green
-      });
-      saveCustomCharacters();
-    }
-
-    function addEliteCharacter() {
-      const name = prompt("Elite name:", "New");
-      if (!name) return;
-
-      circles.push({
-        nx: 0.55,
-        ny: 0.25,
-        r: 25,
-        label: name,
-        team: "red",
-        initial: false,
-        spawned: false,
-        elite: true,
-        id: Date.now(),
-        ...colors.red
-      });
-      saveCustomElites();
-    }
-
-    function removeLastSpawned(team) {
-      for (let i = circles.length - 1; i >= 0; i--) {
-        const c = circles[i];
+    function removeSpawn(team) {
+      for (let i = state.circles.length - 1; i >= 0; i--) {
+        const c = state.circles[i];
         if (c.spawned && c.team === team) {
-          circles.splice(i, 1);
-          numberState[team].reusable.push(c.label);
-          numberState[team].reusable.sort((a, b) => a - b);
+          state.circles.splice(i, 1);
+          nums[team].reuse.push(+c.label);
+          nums[team].reuse.sort((a, b) => a - b);
           return;
         }
       }
     }
 
-    function saveInitialNames() {
-      const data = {};
-      circles.forEach(c => {
-        if (c.initial) {
-          data[c.id] = c.label;
-        }
+    /* ================= Storage ================= */
+    const load = k => JSON.parse(localStorage.getItem(k) || "null");
+    const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+    function saveAll() {
+      const init = {}, chars = [], elites = [];
+      for (const c of state.circles) {
+        if (c.initial) init[c.id] = c.label;
+        else if (c.team === "green" && !c.spawned)
+          chars.push({ nx: c.nx, ny: c.ny, label: c.label, id: c.id });
+        else if (c.elite)
+          elites.push({ nx: c.nx, ny: c.ny, label: c.label, id: c.id });
+      }
+
+      save(K.namesKey, init);
+      save(K.charKey, chars);
+      save(K.eliteKey, elites);
+    }
+
+    /* ================= Controls ================= */
+    document
+      .querySelectorAll('#mobsbuttons button[data-team]')
+      .forEach(b => {
+        b.onclick = () => {
+          const { team, action } = b.dataset;
+          action === "add" ? spawn(team) : removeSpawn(team);
+        };
       });
-      localStorage.setItem(CIRCLES_STORAGE_KEY, JSON.stringify(data));
-    }
 
-    function saveCustomElites() {
-      const data = circles
-        .filter(c => c.team === "red" && c.elite)
-        .map(c => ({
-          nx: c.nx,
-          ny: c.ny,
-          label: c.label,
-          id: c.id
-        }));
-      localStorage.setItem(CUSTOM_ELITE_STORAGE_KEY, JSON.stringify(data));
-    }
+    $("characktersbuttons")
+      .querySelector("button")
+      .onclick = () => {
+        const name = prompt("Имя персонажа:", "New");
+        if (!name) return;
+        add(.25, .75, "green", name, { id: Date.now() });
+        saveAll();
+      };
 
-    /* ================== Controls ================== */
-    document.querySelectorAll("#mobsbuttons button").forEach(b =>
-      b.onclick = () =>
-        b.dataset.action === "add"
-          ? spawn(b.dataset.team)
-          : removeLastSpawned(b.dataset.team)
-    );
+    $("addEliteButton").onclick = () => {
 
-    document
-      .querySelector('#characktersbuttons button')
-      .onclick = addInitialCharacter;
+      const name = prompt("Elite name:", "New");
+      if (!name) return;
 
-    document
-      .getElementById("addEliteButton")
-      .onclick = addEliteCharacter;
+      add(.55, .25, "red", name, { elite: true, id: Date.now() });
+      saveAll();
+    };
 
-    function saveCustomCharacters() {
-      const data = circles
-        .filter(c => !c.initial && !c.spawned && c.team === "green")
-        .map(c => ({
-          nx: c.nx,
-          ny: c.ny,
-          label: c.label,
-          id: c.id
-        }));
-
-      localStorage.setItem(CUSTOM_CHAR_STORAGE_KEY, JSON.stringify(data));
-    }
-    /* ================== Interaction ================== */
+    /* ================= Interaction ================= */
     const dist = (a, b, x, y) => Math.hypot(a - x, b - y);
-
     canvas.onpointerdown = e => {
       const r = canvas.getBoundingClientRect();
-      const px = e.clientX - r.left;
-      const py = e.clientY - r.top;
-
-      for (let i = circles.length - 1; i >= 0; i--) {
-        const c = circles[i];
-        const cx = c.nx * r.width;
-        const cy = c.ny * r.height;
-
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      for (let i = state.circles.length - 1; i >= 0; i--) {
+        const c = state.circles[i];
+        const cx = c.nx * r.width, cy = c.ny * r.height;
         if (dist(px, py, cx, cy) <= c.r) {
-          circles.splice(i, 1);
-          circles.push(c);
-          active = { c, dx: px - cx, dy: py - cy };
+          state.circles.splice(i, 1);
+          state.circles.push(c);
+          state.active = { c, dx: px - cx, dy: py - cy };
           canvas.setPointerCapture(e.pointerId);
           return;
         }
@@ -387,159 +321,140 @@
     };
 
     canvas.onpointermove = e => {
-      if (!active) return;
+      if (!state.active) return;
       const r = canvas.getBoundingClientRect();
-      active.c.nx = (e.clientX - r.left - active.dx) / r.width;
-      active.c.ny = (e.clientY - r.top - active.dy) / r.height;
+      const a = state.active;
+      a.c.nx = (e.clientX - r.left - a.dx) / r.width;
+      a.c.ny = (e.clientY - r.top - a.dy) / r.height;
     };
 
-    canvas.onpointerup = e => {
-      if (active) {
-        const c = active.c;
+    canvas.onpointerup = () => {
+      const a = state.active;
+      if (a) {
+        const c = a.c;
         const x = c.nx * (canvas.width / DPR);
         const y = c.ny * (canvas.height / DPR);
-
         if (!c.initial &&
           x + c.r > bin.x && x - c.r < bin.x + bin.w &&
           y + c.r > bin.y && y - c.r < bin.y + bin.h) {
-          circles.splice(circles.indexOf(c), 1);
-          deathCount++;
-          saveCustomCharacters();
-          saveCustomElites();
+          state.circles.splice(
+            state.circles.indexOf(c), 1
+          );
+          state.death++;
         }
       }
-      active = null;
+      saveAll();
+      state.active = null;
     };
 
-    /* ================== Draw ================== */
+    /* ================= Layout ================= */
+    function layout(label) {
+      label = String(label);
+      const words = label.split(/\s+/).slice(0, 2);
+      ctx.font = "bold 12px sans-serif";
+      let max = 0;
+      for (const w of words)
+        max = Math.max(max, ctx.measureText(w).width);
+      const lineH = 14;
+      const r = Math.min(
+        Math.max(Math.max(max, words.length * lineH) / 2 + 2, 18),
+        40
+      );
+      return { r, words, lineH };
+    }
+
+    /* ================= Render ================= */
     function draw() {
       const W = canvas.width / DPR, H = canvas.height / DPR;
       ctx.clearRect(0, 0, W, H);
+      if (state.bgReady)
+        ctx.drawImage(bg, 0, 0, W, H);
 
-      if (bgReady) ctx.drawImage(bg, 0, 0, W, H);
-
-      // Graveyard
       ctx.fillStyle = "rgba(200,50,50,.15)";
       ctx.strokeStyle = "rgba(200,50,50,.6)";
       ctx.lineWidth = 3;
+
       ctx.fillRect(bin.x, bin.y, bin.w, bin.h);
       ctx.strokeRect(bin.x, bin.y, bin.w, bin.h);
 
       ctx.fillStyle = "#000";
-      ctx.font = "bold 14px sans-serif";
-      ctx.textAlign = "left";
-      ctx.textBaseline = "top";
-      ctx.fillText("Graveyard", bin.x + 10, bin.y + 10);
-      ctx.fillText(`Death Count: ${deathCount}`, bin.x + 10, bin.y + 30);
 
-      // Circles
+      const centerX = bin.x + bin.w / 2;
+
+      ctx.font = "bold 16px sans-serif";
+      ctx.fillText("Graveyard", centerX, bin.y + 20);
+
+      ctx.font = "bold 20px sans-serif";
+      ctx.fillText(`💀 ${state.death}`, centerX, bin.y + 50);
+
       ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+      ctx.textBaseline = "center";
 
-      for (const c of circles) {
+      for (const c of state.circles) {
         const x = c.nx * W, y = c.ny * H;
+        const L = layout(c.label);
+        c.r = L.r;
 
         ctx.beginPath();
         ctx.arc(x, y, c.r, 0, Math.PI * 2);
+
         ctx.fillStyle = c.fill;
         ctx.strokeStyle = c.stroke;
+
         ctx.fill();
         ctx.stroke();
 
-        if (c.label) {
-          ctx.fillStyle = "#000";
-          ctx.font = "bold 10px sans-serif";
-          ctx.fillText(c.label, x, y);
-        }
+        ctx.fillStyle = "#000";
+        ctx.font = "bold 12px sans-serif";
+        const offset = L.lineH * 0.25; //vertical correction
+
+        const start = y - (L.words.length - 1) * L.lineH / 2 + offset;
+
+        L.words.forEach((w, i) =>
+          ctx.fillText(w, x, start + i * L.lineH)
+        );
       }
       requestAnimationFrame(draw);
     }
 
-    /* ================== Initial Circles ================== */
-    const initialCircles = [
+    /* ================= Initial Load ================= */
+    const initial = [
       [0.55, 0.75, "Вульрад"],
       [0.53, 0.80, "Asitburns"],
       [0.57, 0.80, "Asshunter"]
     ];
 
-    let nextInitialId = initialCircles.length;
+    const names = load(K.namesKey) || {};
 
-    // Load saved names if exist
-    const savedNames = JSON.parse(localStorage.getItem(CIRCLES_STORAGE_KEY) || "{}");
+    initial.forEach(([x, y, n], i) =>
+      add(x, y, "green", names[i] || n, { initial: true, id: i })
+    );
 
-    initialCircles.forEach(([nx, ny, defaultName], index) => {
-      circles.push({
-        nx,
-        ny,
-        r: 25,
-        label: savedNames[index] || defaultName,
-        team: "green",
-        initial: true,
-        spawned: false,
-        id: index, // important for persistence
-        ...colors.green
-      });
-    });
+    (load(K.eliteKey) || [])
+      .forEach(c => add(c.nx, c.ny, "red", c.label, { elite: true, id: c.id }));
 
-    const savedElites = JSON.parse(localStorage.getItem(CUSTOM_ELITE_STORAGE_KEY) || "[]");
-
-    savedElites.forEach(c => {
-      circles.push({
-        nx: c.nx,
-        ny: c.ny,
-        r: 25,
-        label: c.label,
-        team: "red",
-        initial: false,
-        spawned: false,
-        elite: true,
-        id: c.id,
-        ...colors.red
-      });
-    });
+    (load(K.charKey) || [])
+      .forEach(c => add(c.nx, c.ny, "green", c.label, { id: c.id }));
 
     draw();
 
-    const savedCustom = JSON.parse(
-      localStorage.getItem(CUSTOM_CHAR_STORAGE_KEY) || "[]"
-    );
-
-    savedCustom.forEach(c => {
-      circles.push({
-        nx: c.nx,
-        ny: c.ny,
-        r: 25,
-        label: c.label,
-        team: "green",
-        initial: false,
-        spawned: false,
-        id: c.id,
-        ...colors.green
-      });
-
-      nextInitialId = Math.max(nextInitialId, c.id + 1);
-    });
-    /* ================== Rename Initial Circles ================== */
-
+    /* ================= Rename ================= */
     canvas.ondblclick = e => {
-      const rect = canvas.getBoundingClientRect();
-      const px = e.clientX - rect.left;
-      const py = e.clientY - rect.top;
+      const r = canvas.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
 
-      for (let i = circles.length - 1; i >= 0; i--) {
-        const c = circles[i];
-
+      for (let i = state.circles.length - 1; i >= 0; i--) {
+        const c = state.circles[i];
         if (c.spawned) continue;
 
-        const cx = c.nx * rect.width;
-        const cy = c.ny * rect.height;
+        const cx = c.nx * r.width, cy = c.ny * r.height;
 
         if (dist(px, py, cx, cy) <= c.r) {
-          const newName = prompt("Enter new name:", c.label);
-          if (newName !== null && newName.trim() !== "") {
-            c.label = newName.trim();
-            saveInitialNames();
-            saveCustomCharacters();
+          const name = prompt("Enter new name:", c.label);
+
+          if (name?.trim()) {
+            c.label = name.trim();
+            saveAll();
           }
           return;
         }
