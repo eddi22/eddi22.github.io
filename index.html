@@ -61,7 +61,7 @@
       padding: 10px 14px;
       border-radius: 8px;
       border: 1px solid #0001;
-      background: #fff;
+      background: #8b8989;
       box-shadow: 0 2px 6px #0001;
       font-weight: 600;
       cursor: pointer;
@@ -73,9 +73,10 @@
   <!-- Buttons -->
   <div id="bgControl">
     <select name="language" id="abc" onchange="languageChange()">
-      <option value="ru">ru</option>
-      <option value="en">en</option>
-      <option value="ger">ger</option>
+      <option value="ru">🇷🇺 Russian</option>
+      <option value="en">🇬🇧 English</option>
+      <option value="ger">🇩🇪 German</option>
+      <option value="uk">🇺🇦 Ukrainian</option>
     </select>
     <button id="bgPrevButton">&lt;- Задний План</button>
     <button id="bgButton">Задний План -></button>
@@ -186,6 +187,19 @@
         graveyard: "Friedhof",
         promptName: "Charaktername:",
         promptRename: "Neuen Namen eingeben:"
+      },
+      uk: {
+        bgPrev: "<- Фон",
+        bgNext: "Фон ->",
+        addElite: "Додати елітного",
+        enemiesPlus: "Вороги +",
+        enemiesMinus: "Вороги -",
+        alliesPlus: "Союзники +",
+        alliesMinus: "Союзники -",
+        addChar: "Додати персонажа",
+        graveyard: "Цвинтар",
+        promptName: "Ім’я персонажа:",
+        promptRename: "Введіть нове ім’я:"
       }
     };
     const colors = {
