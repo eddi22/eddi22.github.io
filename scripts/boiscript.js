@@ -114,13 +114,14 @@ const ELEMENTS = [
     "tree",
     "wall_vertical",
     "wall_horizontal",
-    "carriage"
-    //more names
+    "carriage",
+    { name: "hole", width: 300, height: 300 },
 ];
 
 const ELEMENT_CONFIG = {
-    size: 120,      //px
-    opacity: 0.9   //0–1
+    width: 140,     //px
+    height: 100,    //px
+    opacity: 0.9    //0–1
 };
 
 state.elements = [];
@@ -143,12 +144,14 @@ document.body.appendChild(elementMenu);
 function buildElementMenu() {
     elementMenu.innerHTML = "";
 
-    ELEMENTS.forEach(name => {
+    ELEMENTS.forEach(elementDef => {
+        const { name } = normalizeElement(elementDef);
+
         const btn = document.createElement("button");
         btn.textContent = name;
 
         btn.onclick = () => {
-            addElement(name);
+            addElement(elementDef); // pass full definition, not just name
             elementMenu.style.display = "none";
         };
 
@@ -430,12 +433,22 @@ $("elementButton").onclick = () => {
     elementMenu.style.display = "flex";
 };
 
-async function addElement(name) {
+function normalizeElement(element) {
+    if (typeof element === "string") {
+        return { name: element };
+    }
+    return element;
+}
+
+async function addElement(elementDef) {
+    const { name, width, height, opacity } = normalizeElement(elementDef);
+
     const src = await resolveElementSrc(name);
     if (!src) {
         console.error("Element not found:", name);
         return;
     }
+
     const img = new Image();
 
     img.onload = () => {
@@ -443,11 +456,12 @@ async function addElement(name) {
             img,
             nx: 0.5,
             ny: 0.5,
-            w: ELEMENT_CONFIG.size,
-            h: ELEMENT_CONFIG.size,
-            opacity: ELEMENT_CONFIG.opacity
+            w: width ?? ELEMENT_CONFIG.width,
+            h: height ?? ELEMENT_CONFIG.height,
+            opacity: opacity ?? ELEMENT_CONFIG.opacity
         });
     };
+
     img.src = src;
 }
 
