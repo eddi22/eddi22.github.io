@@ -569,7 +569,7 @@ function draw() {
 }
 /* ================= Initial Load ================= */
 const initial = [
-    [0.55, 0.75, "Вульрад"],
+    [0.55, 0.75, "Wulrath"],
     [0.53, 0.80, "Asitburns"],
     [0.57, 0.80, "Asshunter"]
 ];
